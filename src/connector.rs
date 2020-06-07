@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-pub fn createClient() -> awc::Client {
+pub fn create_client() -> awc::Client {
     // Websockets must use http/1.1 as long as RFC8441 is not implemented.
     // https://github.com/actix/actix-web/issues/1069
     let mut cfg = rustls::ClientConfig::new();

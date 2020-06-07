@@ -2,8 +2,9 @@ use actix::io::SinkWrite;
 use actix::prelude::*;
 use actix_web::{middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws;
-use std::time::{Duration, Instant};
 use futures::stream::StreamExt;
+use std::time::{Duration, Instant};
+use std::str;
 
 mod actors;
 mod connector;
@@ -16,17 +17,18 @@ const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Do websocket handshake and start `WebSocketActor` actor
 async fn ws_index(
-    r: HttpRequest,
+    req: HttpRequest,
     stream: web::Payload,
-    btc_actor_address: web::Data<actix::Addr<BTCWebsocketActor>>,
+    actor: web::Data<Addr<BTCWebsocketActor>>,
 ) -> Result<HttpResponse, Error> {
-    println!("{:?}", r);
+    println!("{:?}", req);
 
-    let web_socket_actor = WebSocketActor::new();
-    let res = ws::start(web_socket_actor, &r, stream);
+    let (address, res) = ws::start_with_addr(WebSocketActor::new(), &req, stream).expect("sarasa");
+    let subscriber = actors::btc::Subscribe(address.recipient());
 
-    println!("{:?}", res);
-    res
+    actor.do_send(subscriber);
+
+    Ok(res)
 }
 
 /// Websocket connection is a long running connection, it easier to handle with
@@ -42,6 +44,7 @@ impl Actor for WebSocketActor {
 
     /// Method is called on actor start. We start the heartbeat process here.
     fn started(&mut self, ctx: &mut Self::Context) {
+        println!("Websocket connection started");
         self.hb(ctx);
     }
 }
@@ -50,7 +53,7 @@ impl Actor for WebSocketActor {
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocketActor {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         // process websocket messages
-        println!("WS: {:?}", msg);
+        println!("New ws message: {:?}", msg);
         match msg {
             Ok(ws::Message::Ping(msg)) => {
                 self.hb = Instant::now();
@@ -61,11 +64,18 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocketActor {
             }
             Ok(ws::Message::Text(text)) => ctx.text(text),
             Ok(ws::Message::Binary(bin)) => ctx.binary(bin),
-            Ok(ws::Message::Close(_)) => {
-                ctx.stop();
-            }
+            Ok(ws::Message::Close(_)) => ctx.stop(),
             _ => ctx.stop(),
         }
+    }
+}
+
+impl Handler<actors::btc::Transaction> for WebSocketActor {
+    type Result = ();
+    fn handle(&mut self, msg: actors::btc::Transaction, ctx: &mut Self::Context) -> Self::Result {
+        // TODO
+        let message = str::from_utf8(&msg.0).unwrap();
+        ctx.text(message);
     }
 }
 
@@ -101,28 +111,26 @@ async fn main() -> std::io::Result<()> {
     std::env::set_var("RUST_LOG", "actix_server=info,actix_web=info");
     env_logger::init();
 
-    let client = connector::createClient();
+    let client = connector::create_client();
     let (_response, framed) = client
         .ws("wss://ws.blockchain.info/inv")
         .connect()
         .await
         .map_err(|err| panic!("Error trying to connect: {}", err))
         .unwrap();
-    let (sink, stream) = framed.split();
-    let btc_actor_address = BTCWebsocketActor::create(|ctx| {
-        BTCWebsocketActor::add_stream(stream, ctx);
-        BTCWebsocketActor(SinkWrite::new(sink, ctx))
-    });
 
-    let recipient = btc_actor_address.recipient();
+    let (sink, stream) = framed.split();
+    let address = BTCWebsocketActor::create(|ctx| {
+        BTCWebsocketActor::add_stream(stream, ctx);
+        BTCWebsocketActor::new(SinkWrite::new(sink, ctx))
+    });
 
     HttpServer::new(move || {
         App::new()
-            .data(btc_actor_address.clone())
+            .data(address.clone())
             .wrap(middleware::Logger::default())
             .service(web::resource("/ws/").route(web::get().to(ws_index)))
     })
-    // start http server on 127.0.0.1:8080
     .bind("127.0.0.1:8080")?
     .run()
     .await

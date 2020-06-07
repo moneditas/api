@@ -8,15 +8,25 @@ use awc::{
 };
 use bytes::Bytes;
 use futures::stream::SplitSink;
+// use serde_json::{Result as Re, Value as Val};
 use std::time::Duration;
-
-pub struct BTCWebsocketActor(
-    pub SinkWrite<Message, SplitSink<Framed<BoxedSocket, Codec>, Message>>,
-);
 
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct ClientCommand(pub String);
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct Transaction(pub Bytes);
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct Subscribe(pub Recipient<Transaction>);
+
+pub struct BTCWebsocketActor {
+    pub sink: SinkWrite<Message, SplitSink<Framed<BoxedSocket, Codec>, Message>>,
+    subscribers: Vec<Recipient<Transaction>>,
+}
 
 impl Actor for BTCWebsocketActor {
     type Context = Context<Self>;
@@ -34,14 +44,44 @@ impl Actor for BTCWebsocketActor {
 }
 
 impl BTCWebsocketActor {
+    pub fn new(sink: SinkWrite<Message, SplitSink<Framed<BoxedSocket, Codec>, Message>>) -> Self {
+        Self {
+            sink,
+            subscribers: vec![],
+        }
+    }
+
     fn hb(&self, ctx: &mut Context<Self>) {
         ctx.run_later(Duration::new(1, 0), |act, ctx| {
-            act.0.write(Message::Ping(Bytes::from_static(b""))).unwrap();
+            act.sink
+                .write(Message::Ping(Bytes::from_static(b"")))
+                .unwrap();
+
             act.hb(ctx);
 
             // client should also check for a timeout here, similar to the
             // server code
         });
+    }
+
+    fn notify(&mut self, transaction: Bytes) {
+        // println!("aca {:?}", &self.subscribers);
+
+        for subscriber in &self.subscribers {
+            let result = subscriber.do_send(Transaction(transaction.clone()));
+            if result.is_err() {
+                println!("There was an error trying to send message to subscriber")
+            }
+        }
+    }
+}
+
+/// Subscribe to transaction event
+impl Handler<Subscribe> for BTCWebsocketActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: Subscribe, _: &mut Self::Context) {
+        self.subscribers.push(msg.0);
     }
 }
 
@@ -50,7 +90,7 @@ impl Handler<ClientCommand> for BTCWebsocketActor {
     type Result = ();
 
     fn handle(&mut self, msg: ClientCommand, _ctx: &mut Context<Self>) {
-        self.0.write(Message::Text(msg.0)).unwrap();
+        self.sink.write(Message::Text(msg.0)).unwrap();
     }
 }
 
@@ -58,16 +98,21 @@ impl Handler<ClientCommand> for BTCWebsocketActor {
 impl StreamHandler<Result<Frame, WsProtocolError>> for BTCWebsocketActor {
     fn handle(&mut self, msg: Result<Frame, WsProtocolError>, _: &mut Context<Self>) {
         if let Ok(Frame::Text(txt)) = msg {
-            println!("Server: {:?}", txt)
+            // println!("LLego msg de BTC {:?}", txt);
+            self.notify(txt);
+
+            // let text = format!("{:?}", txt);
+            // let value: Val = serde_json::from_str(text.as_str()).unwrap();
+            // println!("LLego msg de BTC {:?}", value);
         }
     }
 
     fn started(&mut self, ctx: &mut Context<Self>) {
         println!("Bitcoin websocket connected");
-    
+
         let mut _cmd = String::from("{\"op\":\"ping\"}");
         let cmd = String::from("{\"op\":\"unconfirmed_sub\"}");
-        
+
         ctx.address().do_send(ClientCommand(cmd));
     }
 
