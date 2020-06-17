@@ -65,14 +65,21 @@ impl BTCWebsocketActor {
     }
 
     fn notify(&mut self, transaction: Bytes) {
-        // println!("aca {:?}", &self.subscribers);
-
-        for subscriber in &self.subscribers {
+        let mut closed = vec![];
+        for (position, subscriber) in self.subscribers.iter().enumerate() {
             let result = subscriber.do_send(Transaction(transaction.clone()));
+
+            // TODO: Remove only SendError actors
             if result.is_err() {
-                println!("There was an error trying to send message to subscriber")
+                println!("There was an error trying to send message to subscriber");
+                &closed.push(position);
             }
         }
+
+        // Remove non active actors
+        closed.iter().for_each(|index| {
+            self.subscribers.remove(*index);
+        });
     }
 }
 

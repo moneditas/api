@@ -3,8 +3,8 @@ use actix::prelude::*;
 use actix_web::{middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws;
 use futures::stream::StreamExt;
-use std::time::{Duration, Instant};
 use std::str;
+use std::time::{Duration, Instant};
 
 mod actors;
 mod connector;
