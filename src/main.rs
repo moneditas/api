@@ -21,18 +21,14 @@ async fn ws_index(
     stream: web::Payload,
     actor: web::Data<Addr<BTCWebsocketActor>>,
 ) -> Result<HttpResponse, Error> {
-    println!("{:?}", req);
-
-    let (address, res) = ws::start_with_addr(WebSocketActor::new(), &req, stream).expect("sarasa");
+    let (address, res) = ws::start_with_addr(WebSocketActor::new(), &req, stream)?;
     let subscriber = actors::btc::Subscribe(address.recipient());
 
+    // TODO: Use try_send and handle error
     actor.do_send(subscriber);
-
     Ok(res)
 }
 
-/// Websocket connection is a long running connection, it easier to handle with
-/// an actor.
 struct WebSocketActor {
     /// Client must send ping at least once per 10 seconds (CLIENT_TIMEOUT),
     /// otherwise we drop connection.
@@ -41,8 +37,6 @@ struct WebSocketActor {
 
 impl Actor for WebSocketActor {
     type Context = ws::WebsocketContext<Self>;
-
-    /// Method is called on actor start. We start the heartbeat process here.
     fn started(&mut self, ctx: &mut Self::Context) {
         println!("Websocket connection started");
         self.hb(ctx);
@@ -53,7 +47,6 @@ impl Actor for WebSocketActor {
 impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocketActor {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         // process websocket messages
-        println!("New ws message: {:?}", msg);
         match msg {
             Ok(ws::Message::Ping(msg)) => {
                 self.hb = Instant::now();
@@ -73,7 +66,6 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocketActor {
 impl Handler<actors::btc::Transaction> for WebSocketActor {
     type Result = ();
     fn handle(&mut self, msg: actors::btc::Transaction, ctx: &mut Self::Context) -> Self::Result {
-        // TODO
         let message = str::from_utf8(&msg.0).unwrap();
         ctx.text(message);
     }
@@ -85,7 +77,6 @@ impl WebSocketActor {
     }
 
     /// helper method that sends ping to client every second.
-    ///
     /// also this method checks heartbeats from client
     fn hb(&self, ctx: &mut <Self as Actor>::Context) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
@@ -131,7 +122,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(middleware::Logger::default())
             .service(web::resource("/ws/").route(web::get().to(ws_index)))
     })
-    .bind("127.0.0.1:8080")?
+    .bind("127.0.0.1:8083")?
     .run()
     .await
 }

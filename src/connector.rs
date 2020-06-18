@@ -9,7 +9,6 @@ pub fn create_client() -> awc::Client {
         .add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
 
     let connector = awc::Connector::new().rustls(Arc::new(cfg)).finish();
-    let client = awc::ClientBuilder::new().connector(connector).finish();
 
-    client
+    awc::ClientBuilder::new().connector(connector).finish()
 }

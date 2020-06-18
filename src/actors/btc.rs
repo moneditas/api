@@ -8,7 +8,6 @@ use awc::{
 };
 use bytes::Bytes;
 use futures::stream::SplitSink;
-// use serde_json::{Result as Re, Value as Val};
 use std::time::Duration;
 
 #[derive(Message)]
@@ -69,14 +68,13 @@ impl BTCWebsocketActor {
         for (position, subscriber) in self.subscribers.iter().enumerate() {
             let result = subscriber.do_send(Transaction(transaction.clone()));
 
-            // TODO: Remove only SendError actors
+            // TODO: Handle "SendError" error and only disconnect these actors.
             if result.is_err() {
                 println!("There was an error trying to send message to subscriber");
-                &closed.push(position);
+                closed.push(position);
             }
         }
 
-        // Remove non active actors
         closed.iter().for_each(|index| {
             self.subscribers.remove(*index);
         });
@@ -105,12 +103,7 @@ impl Handler<ClientCommand> for BTCWebsocketActor {
 impl StreamHandler<Result<Frame, WsProtocolError>> for BTCWebsocketActor {
     fn handle(&mut self, msg: Result<Frame, WsProtocolError>, _: &mut Context<Self>) {
         if let Ok(Frame::Text(txt)) = msg {
-            // println!("LLego msg de BTC {:?}", txt);
             self.notify(txt);
-
-            // let text = format!("{:?}", txt);
-            // let value: Val = serde_json::from_str(text.as_str()).unwrap();
-            // println!("LLego msg de BTC {:?}", value);
         }
     }
 
