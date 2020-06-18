@@ -984,6 +984,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "moneditas"
+version = "0.1.0"
+dependencies = [
+ "actix 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "actix-codec 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "actix-files 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "actix-rt 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "actix-web 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "actix-web-actors 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "awc 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bytes 0.5.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "env_logger 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "futures 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rustls 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "webpki-roots 0.19.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "net2"
 version = "0.2.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1466,24 +1484,6 @@ dependencies = [
  "smallvec 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.2.20 (registry+https://github.com/rust-lang/crates.io-index)",
  "trust-dns-proto 0.18.0-alpha.2 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "txs-cloud"
-version = "0.1.0"
-dependencies = [
- "actix 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "actix-codec 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "actix-files 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "actix-rt 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "actix-web 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "actix-web-actors 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "awc 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "bytes 0.5.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "env_logger 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "futures 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "rustls 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "webpki-roots 0.19.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

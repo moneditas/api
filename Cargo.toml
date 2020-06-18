@@ -1,5 +1,5 @@
 [package]
-name = "txs-cloud"
+name = "moneditas"
 version = "0.1.0"
 authors = ["ndelvalle <nicolas.delvalle@gmail.com>"]
 edition = "2018"
