@@ -8,7 +8,9 @@ use awc::{
 };
 use bytes::Bytes;
 use futures::stream::SplitSink;
+use std::collections::HashMap;
 use std::time::Duration;
+use uuid::Uuid;
 
 #[derive(Message)]
 #[rtype(result = "()")]
@@ -19,15 +21,19 @@ pub struct ClientCommand(pub String);
 pub struct Transaction(pub Bytes);
 
 #[derive(Message)]
-#[rtype(result = "()")]
+#[rtype(result = "String")]
 pub struct Subscribe(pub Recipient<Transaction>);
 
-pub struct BTCWebsocketActor {
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct Unsubscribe(pub String);
+
+pub struct BitcoinActor {
     pub sink: SinkWrite<Message, SplitSink<Framed<BoxedSocket, Codec>, Message>>,
-    subscribers: Vec<Recipient<Transaction>>,
+    subscribers: HashMap<String, Recipient<Transaction>>,
 }
 
-impl Actor for BTCWebsocketActor {
+impl Actor for BitcoinActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Context<Self>) {
@@ -36,22 +42,22 @@ impl Actor for BTCWebsocketActor {
     }
 
     fn stopped(&mut self, _: &mut Context<Self>) {
-        println!("Bitcoin websocket disconnected");
+        println!("BitcoinActor websocket disconnected");
         // Stop application on disconnect
         System::current().stop();
     }
 }
 
-impl BTCWebsocketActor {
+impl BitcoinActor {
     pub fn new(sink: SinkWrite<Message, SplitSink<Framed<BoxedSocket, Codec>, Message>>) -> Self {
         Self {
             sink,
-            subscribers: vec![],
+            subscribers: HashMap::new(),
         }
     }
 
     fn hb(&self, ctx: &mut Context<Self>) {
-        ctx.run_later(Duration::new(1, 0), |act, ctx| {
+        ctx.run_later(Duration::new(10, 0), |act, ctx| {
             act.sink
                 .write(Message::Ping(Bytes::from_static(b"")))
                 .unwrap();
@@ -64,34 +70,40 @@ impl BTCWebsocketActor {
     }
 
     fn notify(&mut self, transaction: Bytes) {
-        let mut closed = vec![];
-        for (position, subscriber) in self.subscribers.iter().enumerate() {
-            let result = subscriber.do_send(Transaction(transaction.clone()));
-
-            // TODO: Handle "SendError" error and only disconnect these actors.
-            if result.is_err() {
-                println!("There was an error trying to send message to subscriber");
-                closed.push(position);
+        self.subscribers.iter().for_each(|(id, addr)| {
+            let is_err = addr.do_send(Transaction(transaction.clone())).is_err();
+            if is_err {
+                println!("Failed sending message to subscriber {}", id)
             }
-        }
-
-        closed.iter().for_each(|index| {
-            self.subscribers.remove(*index);
         });
     }
 }
 
 /// Subscribe to transaction event
-impl Handler<Subscribe> for BTCWebsocketActor {
+impl Handler<Subscribe> for BitcoinActor {
+    type Result = String;
+
+    fn handle(&mut self, msg: Subscribe, _: &mut Self::Context) -> Self::Result {
+        let id = Uuid::new_v4().to_string();
+        self.subscribers.insert(id.clone(), msg.0);
+
+        println!("New client subscribed {}", &id);
+        id
+    }
+}
+
+/// Handler for Unsubscribe message.
+impl Handler<Unsubscribe> for BitcoinActor {
     type Result = ();
 
-    fn handle(&mut self, msg: Subscribe, _: &mut Self::Context) {
-        self.subscribers.push(msg.0);
+    fn handle(&mut self, msg: Unsubscribe, _: &mut Context<Self>) {
+        println!("Unsubscribing client {}", &msg.0);
+        self.subscribers.remove(&msg.0);
     }
 }
 
 /// Handle stdin commands
-impl Handler<ClientCommand> for BTCWebsocketActor {
+impl Handler<ClientCommand> for BitcoinActor {
     type Result = ();
 
     fn handle(&mut self, msg: ClientCommand, _ctx: &mut Context<Self>) {
@@ -100,7 +112,7 @@ impl Handler<ClientCommand> for BTCWebsocketActor {
 }
 
 /// Handle server websocket messages
-impl StreamHandler<Result<Frame, WsProtocolError>> for BTCWebsocketActor {
+impl StreamHandler<Result<Frame, WsProtocolError>> for BitcoinActor {
     fn handle(&mut self, msg: Result<Frame, WsProtocolError>, _: &mut Context<Self>) {
         if let Ok(Frame::Text(txt)) = msg {
             self.notify(txt);
@@ -108,7 +120,7 @@ impl StreamHandler<Result<Frame, WsProtocolError>> for BTCWebsocketActor {
     }
 
     fn started(&mut self, ctx: &mut Context<Self>) {
-        println!("Bitcoin websocket connected");
+        println!("BitcoinActor websocket connected");
 
         let mut _cmd = String::from("{\"op\":\"ping\"}");
         let cmd = String::from("{\"op\":\"unconfirmed_sub\"}");
@@ -122,4 +134,4 @@ impl StreamHandler<Result<Frame, WsProtocolError>> for BTCWebsocketActor {
     }
 }
 
-impl actix::io::WriteHandler<WsProtocolError> for BTCWebsocketActor {}
+impl actix::io::WriteHandler<WsProtocolError> for BitcoinActor {}

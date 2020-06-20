@@ -20,3 +20,4 @@ bytes = "0.5.4"
 # We need this specific version
 rustls = "0.16"
 webpki-roots = "0.19.0"
+uuid = { version = "0.8.1", features = ["v4"] }

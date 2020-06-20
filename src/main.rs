@@ -8,43 +8,66 @@ use std::time::{Duration, Instant};
 
 mod actors;
 mod connector;
-use actors::btc::BTCWebsocketActor;
+use actors::btc::BitcoinActor;
+use actors::btc::{Subscribe, Unsubscribe};
 
 /// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 /// How long before lack of client response causes a timeout
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Do websocket handshake and start `WebSocketActor` actor
+/// Do websocket handshake and start `WebsocketSession` actor
 async fn ws_index(
     req: HttpRequest,
     stream: web::Payload,
-    actor: web::Data<Addr<BTCWebsocketActor>>,
+    actor: web::Data<Addr<BitcoinActor>>,
 ) -> Result<HttpResponse, Error> {
-    let (address, res) = ws::start_with_addr(WebSocketActor::new(), &req, stream)?;
-    let subscriber = actors::btc::Subscribe(address.recipient());
-
-    // TODO: Use try_send and handle error
-    actor.do_send(subscriber);
-    Ok(res)
+    let srv = actor.get_ref().clone();
+    ws::start(WebsocketSession::new(srv), &req, stream)
 }
 
-struct WebSocketActor {
+pub struct WebsocketSession {
     /// Client must send ping at least once per 10 seconds (CLIENT_TIMEOUT),
     /// otherwise we drop connection.
+    id: String,
     hb: Instant,
+    addr: Addr<BitcoinActor>,
 }
 
-impl Actor for WebSocketActor {
+impl Actor for WebsocketSession {
     type Context = ws::WebsocketContext<Self>;
+
     fn started(&mut self, ctx: &mut Self::Context) {
         println!("Websocket connection started");
         self.hb(ctx);
+
+        // Register self in Bitcoin Actor. `AsyncContext::wait` register
+        // future within context, but context waits until this future resolves
+        // before processing any other events.
+        // HttpContext::state() is instance of WebsocketSession, state is shared
+        // across all routes within application.
+        let subscriber = Subscribe(ctx.address().recipient());
+        self.addr
+            .send(subscriber)
+            .into_actor(self)
+            .then(|res, act, ctx| {
+                match res {
+                    Ok(res) => act.id = res,
+                    // something is wrong with chat server
+                    _ => ctx.stop(),
+                }
+                fut::ready(())
+            })
+            .wait(ctx);
+    }
+
+    fn stopping(&mut self, _: &mut Self::Context) -> Running {
+        self.addr.do_send(Unsubscribe(self.id.clone()));
+        Running::Stop
     }
 }
 
-/// Handler for `ws::Message`
-impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocketActor {
+impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebsocketSession {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         // process websocket messages
         match msg {
@@ -55,7 +78,17 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocketActor {
             Ok(ws::Message::Pong(_)) => {
                 self.hb = Instant::now();
             }
-            Ok(ws::Message::Text(text)) => ctx.text(text),
+            Ok(ws::Message::Text(text)) => {
+                // There is no Javascript API to send ping frames or receive pong frames.
+                // There is also no API to enable, configure or detect whether the browser
+                // supports and is using ping/pong frames.
+                if &text == "ping" {
+                    self.hb = Instant::now();
+                    ctx.text("pong");
+                    return;
+                }
+                ctx.text(text);
+            }
             Ok(ws::Message::Binary(bin)) => ctx.binary(bin),
             Ok(ws::Message::Close(_)) => ctx.stop(),
             _ => ctx.stop(),
@@ -63,7 +96,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WebSocketActor {
     }
 }
 
-impl Handler<actors::btc::Transaction> for WebSocketActor {
+impl Handler<actors::btc::Transaction> for WebsocketSession {
     type Result = ();
     fn handle(&mut self, msg: actors::btc::Transaction, ctx: &mut Self::Context) -> Self::Result {
         let message = str::from_utf8(&msg.0).unwrap();
@@ -71,13 +104,17 @@ impl Handler<actors::btc::Transaction> for WebSocketActor {
     }
 }
 
-impl WebSocketActor {
-    fn new() -> Self {
-        Self { hb: Instant::now() }
+impl WebsocketSession {
+    fn new(addr: Addr<BitcoinActor>) -> Self {
+        Self {
+            id: "".to_owned(),
+            hb: Instant::now(),
+            addr,
+        }
     }
 
-    /// helper method that sends ping to client every second.
-    /// also this method checks heartbeats from client
+    /// helper method that sends ping to client every x second. This method also
+    /// checks heartbeats from client
     fn hb(&self, ctx: &mut <Self as Actor>::Context) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
             // check client heartbeats
@@ -111,9 +148,9 @@ async fn main() -> std::io::Result<()> {
         .unwrap();
 
     let (sink, stream) = framed.split();
-    let address = BTCWebsocketActor::create(|ctx| {
-        BTCWebsocketActor::add_stream(stream, ctx);
-        BTCWebsocketActor::new(SinkWrite::new(sink, ctx))
+    let address = BitcoinActor::create(|ctx| {
+        BitcoinActor::add_stream(stream, ctx);
+        BitcoinActor::new(SinkWrite::new(sink, ctx))
     });
 
     HttpServer::new(move || {
