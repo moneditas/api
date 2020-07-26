@@ -12,7 +12,6 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
-
 // How often heartbeat pings are sent
 const CLIENT_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 // How long before lack of client response causes a timeout
