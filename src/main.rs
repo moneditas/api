@@ -121,11 +121,8 @@ impl WebsocketSession {
             if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
                 // heartbeat timed out
                 println!("Websocket client heartbeat failed, disconnecting!");
-
-                // stop actor
                 ctx.stop();
 
-                // don't try to send a ping
                 return;
             }
 
