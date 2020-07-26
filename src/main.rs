@@ -3,6 +3,8 @@ use actix::prelude::*;
 use actix_web::{middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer};
 use actix_web_actors::ws;
 use futures::stream::StreamExt;
+use std::env;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str;
 use std::time::{Duration, Instant};
 
@@ -150,13 +152,21 @@ async fn main() -> std::io::Result<()> {
         BitcoinActor::new(SinkWrite::new(sink, ctx))
     });
 
+    let port: u16 = env::var("PORT")
+        .unwrap_or("8080".to_owned())
+        .parse()
+        .expect("Failed to parse port environment variable");
+
+    let localhost = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+    let socket = SocketAddr::new(localhost, port);
+
     HttpServer::new(move || {
         App::new()
             .data(address.clone())
             .wrap(middleware::Logger::default())
             .service(web::resource("/ws/").route(web::get().to(ws_index)))
     })
-    .bind("127.0.0.1:8083")?
+    .bind(socket)?
     .run()
     .await
 }
