@@ -109,6 +109,8 @@ impl Handler<Unsubscribe> for BitcoinActor {
 
 impl StreamHandler<Result<Frame, WsProtocolError>> for BitcoinActor {
     fn handle(&mut self, msg: Result<Frame, WsProtocolError>, _: &mut Context<Self>) {
+        self.heartbeat_at = Instant::now();
+
         if let Ok(Frame::Text(txt)) = msg {
             self.notify(txt);
         }
